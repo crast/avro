@@ -34,7 +34,9 @@ func fieldByTag(where reflect.Value, name string) reflect.Value {
 	return reflect.Value{}
 }
 
-func findField(where reflect.Value, name string) (reflect.Value, error) {
+var findField = findFieldOrig
+
+func findFieldOrig(where reflect.Value, name string) (reflect.Value, error) {
 	if where.Kind() == reflect.Ptr {
 		where = where.Elem()
 	}
@@ -52,4 +54,51 @@ func findField(where reflect.Value, name string) (reflect.Value, error) {
 	}
 
 	return field, nil
+}
+
+func findFieldNew(where reflect.Value, name string) (reflect.Value, error) {
+	if where.Kind() == reflect.Ptr {
+		where = where.Elem()
+	}
+	t := where.Type()
+	rm := reflectMap[t]
+	if rm == nil {
+		rm = reflectBuildRi(t)
+	}
+	if rf, ok := rm.names[name]; ok {
+		return where.FieldByIndex(rf), nil
+	}
+	return reflect.Value{}, fmt.Errorf("Field %s does not exist in %s", name, t.Name())
+}
+
+func reflectBuildRi(t reflect.Type) *reflectInfo {
+	rm := &reflectInfo{
+		names: make(map[string][]int),
+	}
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if strings.ToLower(f.Name[:1]) != f.Name[:1] {
+			tag := f.Tag.Get("avro")
+			if tag != "" {
+				rm.names[tag] = f.Index
+			} else {
+				rm.names[f.Name] = f.Index
+				rm.names[strings.ToLower(f.Name[:1])+f.Name[1:]] = f.Index
+			}
+		}
+	}
+
+	m := make(map[reflect.Type]*reflectInfo, len(reflectMap)+1)
+	for k, v := range reflectMap {
+		m[k] = v
+	}
+	m[t] = rm
+	reflectMap = m
+	return rm
+}
+
+var reflectMap map[reflect.Type]*reflectInfo
+
+type reflectInfo struct {
+	names map[string][]int
 }
